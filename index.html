@@ -165,8 +165,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
           <small>Plus il est élevé, plus le dessin est précis et fidèle à l’image… et plus il y a de zones à colorier (le préréglage « Expert » est le plus précis).</small>
         </div>
         <div class="slider">
-          <label for="rM"><span>Lissage et taille des zones</span><b id="vM">Léger</b></label>
-          <input type="range" id="rM" min="0" max="3" value="1">
+          <label for="rM"><span>Lissage et taille des zones</span><b id="vM">Légère · 3/9</b></label>
+          <input type="range" id="rM" min="0" max="9" value="3">
           <small>Plus c’est élevé, plus les contours sont arrondis et plus les petites zones sont fusionnées avec leurs voisines.</small>
         </div>
         <p id="info"></p>
@@ -387,9 +387,18 @@ function kmeans(lab, N, K, seed) {
   return { labels, cent, K };
 }
 
+// 10 niveaux de lissage (0 à 9). Les niveaux 0, 3, 6 et 9 correspondent aux anciens « Aucune / Légère / Moyenne / Forte ».
+const SM_THR    = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2];
+const SM_PASSES = [0, 1, 1, 1, 1, 2, 2, 3, 1, 2];
+const SM_NEED   = [2, 4, 3, 2, 2, 3, 2, 2, 3, 3];
+// Interpolation entre les 4 valeurs d'origine (niveau 0..9 -> position 0..3)
+function smLerp(a, level, geo) {
+  const t = level / 3, i = Math.min(2, Math.floor(t)), fr = t - i;
+  return geo ? a[i] * Math.pow(a[i + 1] / a[i], fr) : a[i] + (a[i + 1] - a[i]) * fr;
+}
 function smoothLabels(lab, W, H, K, strength) {
   if (!strength) return;
-  const thr = [0, 0, 1, 2][strength], passes = [0, 1, 2, 2][strength], need = thr === 2 ? 3 : 2;
+  const thr = SM_THR[strength], passes = SM_PASSES[strength], need = SM_NEED[strength];
   const cnt = new Int16Array(K);
   for (let p = 0; p < passes; p++) {
     const out = lab.slice();
@@ -666,7 +675,7 @@ function generate(src, { k, side, smooth }) {
   }
 
   // Fusionne les toutes petites zones avec leurs voisines
-  const minReg = Math.floor([3, Math.max(4, N * .0002), Math.max(8, N * .0006), Math.max(16, N * .0018)][smooth]);
+  const minReg = Math.floor(smLerp([3, Math.max(4, N * .0002), Math.max(8, N * .0006), Math.max(16, N * .0018)], smooth, true));
   mergeSmallRegions(labels, W, H, minReg);
 
   // Palette = moyenne des vrais pixels de chaque couleur, triée du plus foncé au plus clair
@@ -686,7 +695,7 @@ function generate(src, { k, side, smooth }) {
 
   // Grille plus fine avec frontières arrondies, puis nettoyage des fragments minuscules
   const f = side <= 200 ? 3 : side <= 340 ? 2 : 1, W2 = W * f, H2 = H * f;
-  const up = upscaleLabels(out, W, H, pal.length, f, [.55, .8, 1.1, 1.5][smooth]);
+  const up = upscaleLabels(out, W, H, pal.length, f, smLerp([.55, .8, 1.1, 1.5], smooth, false));
   mergeSmallRegions(up, W2, H2, Math.max(f * f, Math.floor(minReg * f * f * .6)));
   return analyze({ W: W2, H: H2, f, labels: up, pal });
 }
@@ -697,11 +706,11 @@ function txtOn(p) { return p.lum > .55 ? '#1c1b22' : '#ffffff'; }
  *  Écran de réglages                                                  *
  * ------------------------------------------------------------------ */
 let srcImg = null, srcName = 'Image', grid = null, regenTimer = 0;
-const PRESETS = { easy: { k: 8, side: 80, m: 2 }, mid: { k: 14, side: 130, m: 1 }, hard: { k: 22, side: 200, m: 1 }, expert: { k: 32, side: 340, m: 0 } };
-const SMOOTH_LABELS = ['Aucune', 'Légère', 'Moyenne', 'Forte'];
+const PRESETS = { easy: { k: 8, side: 80, m: 6 }, mid: { k: 14, side: 130, m: 3 }, hard: { k: 22, side: 200, m: 3 }, expert: { k: 32, side: 340, m: 0 } };
+const SMOOTH_LABELS = ['Aucune', 'Minime', 'Très légère', 'Légère', 'Légère +', 'Moyenne −', 'Moyenne', 'Moyenne +', 'Forte −', 'Forte'];
 
 function opts() { return { k: +$('#rK').value, side: +$('#rS').value, smooth: +$('#rM').value }; }
-function syncLabels() { $('#vK').textContent = $('#rK').value; $('#vS').textContent = $('#rS').value; $('#vM').textContent = SMOOTH_LABELS[+$('#rM').value]; }
+function syncLabels() { $('#vK').textContent = $('#rK').value; $('#vS').textContent = $('#rS').value; $('#vM').textContent = SMOOTH_LABELS[+$('#rM').value] + ' · ' + $('#rM').value + '/9'; }
 
 function fillRegions(g, D, s, colorOf, strokeAlso) {
   g.setTransform(s, 0, 0, s, 0, 0); g.lineJoin = 'round';
