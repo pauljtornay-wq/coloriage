@@ -150,24 +150,31 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="controls">
         <h2>Difficulté</h2>
         <div class="presets">
+          <button class="chip" data-preset="vez">Très facile</button>
           <button class="chip" data-preset="easy">Facile</button>
           <button class="chip on" data-preset="mid">Moyen</button>
           <button class="chip" data-preset="hard">Difficile</button>
           <button class="chip" data-preset="expert">Expert</button>
+          <button class="chip" data-preset="master">Maître</button>
         </div>
         <div class="slider">
           <label for="rK"><span>Nombre de couleurs</span><b id="vK">14</b></label>
-          <input type="range" id="rK" min="4" max="40" value="14">
+          <input type="range" id="rK" min="2" max="60" value="14">
         </div>
         <div class="slider">
           <label for="rS"><span>Niveau de détail</span><b id="vS">130</b></label>
-          <input type="range" id="rS" min="40" max="400" value="130">
-          <small>Plus il est élevé, plus le dessin est précis et fidèle à l’image… et plus il y a de zones à colorier (le préréglage « Expert » est le plus précis).</small>
+          <input type="range" id="rS" min="30" max="500" value="130">
+          <small>Plus il est élevé, plus le dessin est précis et fidèle à l’image… et plus il y a de zones à colorier (les préréglages « Expert » et « Maître » sont les plus précis, mais plus longs à calculer).</small>
         </div>
         <div class="slider">
-          <label for="rM"><span>Lissage et taille des zones</span><b id="vM">Légère · 3/9</b></label>
+          <label for="rM"><span>Lissage des contours</span><b id="vM">Légère · 3/9</b></label>
           <input type="range" id="rM" min="0" max="9" value="3">
-          <small>Plus c’est élevé, plus les contours sont arrondis et plus les petites zones sont fusionnées avec leurs voisines.</small>
+          <small>Plus c’est élevé, plus les contours sont arrondis et les petits points isolés effacés.</small>
+        </div>
+        <div class="slider">
+          <label for="rZ"><span>Taille minimale des zones</span><b id="vZ">Légère · 3/9</b></label>
+          <input type="range" id="rZ" min="0" max="9" value="3">
+          <small>Plus c’est élevé, plus les toutes petites zones sont fusionnées avec leurs voisines (moins de zones minuscules à colorier).</small>
         </div>
         <p id="info"></p>
         <div class="actions">
@@ -642,7 +649,7 @@ function analyze(grid) {
   return grid;
 }
 
-function generate(src, { k, side, smooth }) {
+function generate(src, { k, side, smooth, minsz }) {
   const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height;
   const s = side / Math.max(sw, sh);
   const W = Math.max(8, Math.round(sw * s)), H = Math.max(8, Math.round(sh * s));
@@ -675,7 +682,7 @@ function generate(src, { k, side, smooth }) {
   }
 
   // Fusionne les toutes petites zones avec leurs voisines
-  const minReg = Math.floor(smLerp([3, Math.max(4, N * .0002), Math.max(8, N * .0006), Math.max(16, N * .0018)], smooth, true));
+  const minReg = Math.floor(smLerp([3, Math.max(4, N * .0002), Math.max(8, N * .0006), Math.max(16, N * .0018)], minsz, true));
   mergeSmallRegions(labels, W, H, minReg);
 
   // Palette = moyenne des vrais pixels de chaque couleur, triée du plus foncé au plus clair
@@ -706,11 +713,22 @@ function txtOn(p) { return p.lum > .55 ? '#1c1b22' : '#ffffff'; }
  *  Écran de réglages                                                  *
  * ------------------------------------------------------------------ */
 let srcImg = null, srcName = 'Image', grid = null, regenTimer = 0;
-const PRESETS = { easy: { k: 8, side: 80, m: 6 }, mid: { k: 14, side: 130, m: 3 }, hard: { k: 22, side: 200, m: 3 }, expert: { k: 32, side: 340, m: 0 } };
+const PRESETS = {
+  vez:    { k: 5,  side: 50,  m: 8, z: 8 },
+  easy:   { k: 8,  side: 80,  m: 6, z: 6 },
+  mid:    { k: 14, side: 130, m: 3, z: 3 },
+  hard:   { k: 22, side: 200, m: 3, z: 3 },
+  expert: { k: 32, side: 340, m: 0, z: 0 },
+  master: { k: 48, side: 480, m: 0, z: 0 }
+};
 const SMOOTH_LABELS = ['Aucune', 'Minime', 'Très légère', 'Légère', 'Légère +', 'Moyenne −', 'Moyenne', 'Moyenne +', 'Forte −', 'Forte'];
 
-function opts() { return { k: +$('#rK').value, side: +$('#rS').value, smooth: +$('#rM').value }; }
-function syncLabels() { $('#vK').textContent = $('#rK').value; $('#vS').textContent = $('#rS').value; $('#vM').textContent = SMOOTH_LABELS[+$('#rM').value] + ' · ' + $('#rM').value + '/9'; }
+function opts() { return { k: +$('#rK').value, side: +$('#rS').value, smooth: +$('#rM').value, minsz: +$('#rZ').value }; }
+function syncLabels() {
+  $('#vK').textContent = $('#rK').value; $('#vS').textContent = $('#rS').value;
+  $('#vM').textContent = SMOOTH_LABELS[+$('#rM').value] + ' · ' + $('#rM').value + '/9';
+  $('#vZ').textContent = SMOOTH_LABELS[+$('#rZ').value] + ' · ' + $('#rZ').value + '/9';
+}
 
 function fillRegions(g, D, s, colorOf, strokeAlso) {
   g.setTransform(s, 0, 0, s, 0, 0); g.lineJoin = 'round';
@@ -779,12 +797,12 @@ $('#drop').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key ===
 document.addEventListener('drop', e => { const fl = e.dataTransfer && e.dataTransfer.files; if (fl && fl.length && !$('#setup').hidden) importFiles(fl); });
 $$('[data-demo]').forEach(b => b.addEventListener('click', () =>
   b.dataset.demo === 'sunset' ? loadSource(demoSunset(), 'Coucher de soleil') : loadSource(demoFlowers(), 'Fleurs')));
-['rK', 'rS', 'rM'].forEach(id => $('#' + id).addEventListener('input', () => {
+['rK', 'rS', 'rM', 'rZ'].forEach(id => $('#' + id).addEventListener('input', () => {
   syncLabels(); $$('[data-preset]').forEach(b => b.classList.remove('on')); scheduleRegen();
 }));
 $$('[data-preset]').forEach(b => b.addEventListener('click', () => {
   const p = PRESETS[b.dataset.preset];
-  $('#rK').value = p.k; $('#rS').value = p.side; $('#rM').value = p.m; syncLabels();
+  $('#rK').value = p.k; $('#rS').value = p.side; $('#rM').value = p.m; $('#rZ').value = p.z; syncLabels();
   $$('[data-preset]').forEach(x => x.classList.toggle('on', x === b)); regen();
 }));
 syncLabels();
@@ -1145,6 +1163,11 @@ function paintSegment(ax, ay, bx, by, group) {
   const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 1.5));
   for (let k = 0; k <= n; k++) { const t = k / n, r = regionAtPx(ax + (bx - ax) * t, ay + (by - ay) * t); if (r >= 0) paintRegion(r, group); }
 }
+function revertGroup(group) {
+  if (!group.length) return;
+  group.forEach(r => { const rg = G.regions[r]; G.rfilled[r] = 0; G.remaining[rg.label]++; G.filledPx -= rg.size; G.rcount--; });
+  group.length = 0; requestDraw(); requestUI();
+}
 function commit(group) {
   if (!group.length) return;
   G.undo.push(group); if (G.undo.length > 400) G.undo.shift();
@@ -1163,11 +1186,17 @@ function undo() {
 }
 $('#tUndo').addEventListener('click', undo);
 
-function tap(px, py) {
-  const r = regionAtPx(px, py); if (r < 0 || G.rfilled[r]) return;
-  const rg = G.regions[r];
-  if (rg.label !== G.sel) return;                               // une zone d'une autre couleur ne se colorie pas
-  const grp = []; paintRegion(r, grp); commit(grp);
+// Zone à colorier sous le doigt (ou tout près, au toucher), sinon -1. Une zone d'une autre couleur ne se colorie pas.
+function paintableAt(px, py, touch) {
+  const ok = r => r >= 0 && !G.rfilled[r] && G.regions[r].label === G.sel;
+  let r = regionAtPx(px, py);
+  if (ok(r)) return r;
+  if (!touch || (r >= 0 && G.rfilled[r] === 0 && G.regions[r].label !== G.sel && G.regions[r].size > 40)) return -1;
+  for (const d of [4, 8]) for (let a = 0; a < 8; a++) {
+    const q = regionAtPx(px + d * Math.cos(a * .7854), py + d * Math.sin(a * .7854));
+    if (ok(q)) return q;
+  }
+  return -1;
 }
 
 $('#tHint').addEventListener('click', () => {
@@ -1198,14 +1227,17 @@ stage.addEventListener('pointerdown', e => {
   const q = localXY(e), p = { x: q.x, y: q.y, sx: q.x, sy: q.y, touch: e.pointerType !== 'mouse' };
   ptrs.set(e.pointerId, p);
   if (ptrs.size >= 2) {
-    if (gest && gest.type === 'paint') commit(gest.group);
+    if (gest && gest.type === 'paint') { if (gest.armed) commit(gest.group); else revertGroup(gest.group); }
     const [a, b] = [...ptrs.values()];
     gest = { type: 'pinch', d0: dist(a, b) || 1, m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, s0: V.scale, ox0: V.ox, oy0: V.oy };
     return;
   }
   const wantPan = G.tool === 'pan' || e.button === 1 || e.button === 2 || spaceDown;
-  gest = wantPan ? { type: 'pan', lx: p.x, ly: p.y } : { type: 'tap' };
-  if (wantPan) stage.classList.add('panning');
+  if (wantPan) { gest = { type: 'pan', lx: p.x, ly: p.y }; stage.classList.add('panning'); return; }
+  // Colorie dès le contact (pas besoin d'attendre le relâchement) ; annulé si un 2e doigt arrive pour zoomer
+  gest = { type: 'paint', lx: p.x, ly: p.y, armed: false, group: [] };
+  const r = paintableAt(p.x, p.y, p.touch);
+  if (r >= 0) { paintRegion(r, gest.group); requestDraw(); requestUI(); }
 });
 
 stage.addEventListener('pointermove', e => {
@@ -1218,12 +1250,11 @@ stage.addEventListener('pointermove', e => {
     V.scale = ns; V.ox = m.x - wx * ns; V.oy = m.y - wy * ns; clampView(); requestDraw();
   } else if (gest.type === 'pan') {
     V.ox += p.x - gest.lx; V.oy += p.y - gest.ly; gest.lx = p.x; gest.ly = p.y; clampView(); requestDraw();
-  } else if (gest.type === 'tap') {
-    if (Math.hypot(p.x - p.sx, p.y - p.sy) > (p.touch ? 8 : 4)) {
-      const group = []; paintSegment(p.sx, p.sy, p.x, p.y, group);
-      gest = { type: 'paint', lx: p.x, ly: p.y, group }; requestDraw(); requestUI();
-    }
   } else if (gest.type === 'paint') {
+    if (!gest.armed) {
+      if (Math.hypot(p.x - p.sx, p.y - p.sy) <= (p.touch ? 8 : 4)) return;
+      gest.armed = true; gest.lx = p.sx; gest.ly = p.sy;
+    }
     paintSegment(gest.lx, gest.ly, p.x, p.y, gest.group); gest.lx = p.x; gest.ly = p.y; requestDraw(); requestUI();
   }
 });
@@ -1231,8 +1262,7 @@ stage.addEventListener('pointermove', e => {
 function endPointer(e, cancelled) {
   const p = ptrs.get(e.pointerId); ptrs.delete(e.pointerId);
   if (!gest) return;
-  if (gest.type === 'tap' && p && !cancelled) tap(p.x, p.y);
-  else if (gest.type === 'paint') commit(gest.group);
+  if (gest.type === 'paint') { if (cancelled && !gest.armed) revertGroup(gest.group); else commit(gest.group); }
   if (ptrs.size === 0) { gest = null; stage.classList.remove('panning'); }
   else if (gest && gest.type === 'pinch') gest = { type: 'none' };
 }
